@@ -50,6 +50,18 @@ import type { SessionSummary } from "./daemon-session-list.js";
 
 export const DAEMON_PROTOCOL_NAME = "prime-agent.daemon";
 export const DAEMON_PROTOCOL_VERSION = 7;
+
+/**
+ * Attach budget for both hops (client to supervisor, supervisor to worker).
+ * Attaching makes the target worker build a session snapshot on its event loop,
+ * and a worker hosting a large subagent tree is already busy serving those
+ * sessions: one measured worker held 36 sessions at ~115% of a core, where the
+ * generic 30s request budget expired before the snapshot was produced and attach
+ * failed outright. A longer budget makes a busy tree slow to attach rather than
+ * unreachable. It does not make the worker faster, and a worker that never
+ * answers now takes this long to say so.
+ */
+export const DAEMON_ATTACH_REQUEST_TIMEOUT_MS = 120_000;
 export const DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION = 7;
 // Revision 9 publishes persisted RLM spawn depth on passive session rows.
 // Revision 10 publishes persisted RLM spawn depth on all session catalog rows.

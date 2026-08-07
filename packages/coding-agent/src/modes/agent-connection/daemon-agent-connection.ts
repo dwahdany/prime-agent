@@ -27,6 +27,7 @@ import { deserializeDaemonError } from "../daemon/daemon-errors.js";
 import {
 	collectDaemonClientEnv,
 	collectDaemonLaunchEnv,
+	DAEMON_ATTACH_REQUEST_TIMEOUT_MS,
 	type DaemonAttachResult,
 	type DaemonCommand,
 	type DaemonEventCursor,
@@ -292,29 +293,32 @@ export class DaemonAgentConnection implements AgentConnection {
 
 	async attach(): Promise<void> {
 		const supportsExtensionUi = this.options.supportsExtensionUi !== false;
-		const result = await this.requestData<SessionSummary | DaemonAttachResult>({
-			type: "attach",
-			activeSessionId: this.activeSessionId,
-			supportsExtensionUi,
-			clientId: this.clientId,
-			capabilities: [
-				"attach_snapshot",
-				"event_sequence",
-				...(supportsExtensionUi ? (["extension_ui"] as const) : []),
-				"slim_attach",
-				"chunked_snapshot",
-				...(this.options.ownedSession ? (["client_owned_sessions"] as const) : []),
-			],
-			env: this.options.sendClientEnv ? collectDaemonClientEnv() : undefined,
-			launchEnv: this.options.ownedSession ? collectDaemonLaunchEnv() : undefined,
-			resumeCursor:
-				this.lastEventCursor === undefined
-					? undefined
-					: {
-							activeSessionId: this.activeSessionId,
-							...this.lastEventCursor,
-						},
-		});
+		const result = await this.requestData<SessionSummary | DaemonAttachResult>(
+			{
+				type: "attach",
+				activeSessionId: this.activeSessionId,
+				supportsExtensionUi,
+				clientId: this.clientId,
+				capabilities: [
+					"attach_snapshot",
+					"event_sequence",
+					...(supportsExtensionUi ? (["extension_ui"] as const) : []),
+					"slim_attach",
+					"chunked_snapshot",
+					...(this.options.ownedSession ? (["client_owned_sessions"] as const) : []),
+				],
+				env: this.options.sendClientEnv ? collectDaemonClientEnv() : undefined,
+				launchEnv: this.options.ownedSession ? collectDaemonLaunchEnv() : undefined,
+				resumeCursor:
+					this.lastEventCursor === undefined
+						? undefined
+						: {
+								activeSessionId: this.activeSessionId,
+								...this.lastEventCursor,
+							},
+			},
+			DAEMON_ATTACH_REQUEST_TIMEOUT_MS,
+		);
 		this.activeSessionId = getAttachActiveSessionId(result);
 		const summary = "snapshot" in result ? result.snapshot.summary : result;
 		this.attachedSessionId = summary.sessionId;
