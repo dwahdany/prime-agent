@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Changed `/fast` to also toggle fast mode on Claude Opus 5 and Claude Opus 4.8 over the Anthropic API.
+- Fixed a daemon session worker hosting a large subagent fan-out saturating its main thread on repeated full scans of the same session files, which made attach and other supervisor commands time out.
 
 ## [0.7.1] - 2026-08-07
 

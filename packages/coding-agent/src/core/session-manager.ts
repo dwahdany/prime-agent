@@ -1002,6 +1002,14 @@ interface SessionInfoCacheEntry {
 // content: cache list metadata and rescan only files that changed.
 const sessionInfoCache = new Map<string, SessionInfoCacheEntry>();
 
+// The (size, mtimeMs) cache never hits for a session that is actively being appended,
+// so every roster walk rescans every live session file in full. Walks also overlap:
+// a worker hosting a subagent fan-out runs them from several call sites at once, which
+// produced hundreds of concurrent full-file scans of the same child session, saturated
+// the worker's main thread, and starved supervisor RPCs until attach timed out. One
+// scan per path at a time serves every caller that arrives while it runs.
+const sessionInfoScans = new Map<string, Promise<SessionInfo | null>>();
+
 export async function readSessionInfo(filePath: string): Promise<SessionInfo | null> {
 	let stats: Awaited<ReturnType<typeof stat>>;
 	try {
@@ -1013,9 +1021,20 @@ export async function readSessionInfo(filePath: string): Promise<SessionInfo | n
 	if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs) {
 		return cached.info;
 	}
-	const info = await scanSessionInfo(filePath, stats);
-	sessionInfoCache.set(filePath, { size: stats.size, mtimeMs: stats.mtimeMs, info });
-	return info;
+	const inFlight = sessionInfoScans.get(filePath);
+	if (inFlight) {
+		return inFlight;
+	}
+	const scan = scanSessionInfo(filePath, stats)
+		.then((info) => {
+			sessionInfoCache.set(filePath, { size: stats.size, mtimeMs: stats.mtimeMs, info });
+			return info;
+		})
+		.finally(() => {
+			sessionInfoScans.delete(filePath);
+		});
+	sessionInfoScans.set(filePath, scan);
+	return scan;
 }
 
 async function scanSessionInfo(filePath: string, stats: Awaited<ReturnType<typeof stat>>): Promise<SessionInfo | null> {
