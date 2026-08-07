@@ -7642,7 +7642,8 @@ export class InteractiveMode {
 	}
 
 	private handleFastCommand(): void {
-		const unavailableMessage = "Fast mode requires GPT-5.4, GPT-5.5, or GPT-5.6 with ChatGPT authentication";
+		const unavailableMessage =
+			"Fast mode requires Claude Opus 5 or Opus 4.8 on the Anthropic API, or GPT-5.4, GPT-5.5, or GPT-5.6 with ChatGPT authentication";
 		if (!this.currentModelSupportsFastMode()) {
 			this.showStatus(unavailableMessage);
 			return;

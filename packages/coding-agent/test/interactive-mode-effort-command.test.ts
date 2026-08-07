@@ -404,7 +404,7 @@ describe("InteractiveMode /effort", () => {
 
 			expect(context.agentConnection.setServiceTier).not.toHaveBeenCalled();
 			expect(context.showStatus).toHaveBeenCalledWith(
-				"Fast mode requires GPT-5.4, GPT-5.5, or GPT-5.6 with ChatGPT authentication",
+				"Fast mode requires Claude Opus 5 or Opus 4.8 on the Anthropic API, or GPT-5.4, GPT-5.5, or GPT-5.6 with ChatGPT authentication",
 			);
 		});
 

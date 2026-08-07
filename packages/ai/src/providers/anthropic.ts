@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { BetaUsage } from "@anthropic-ai/sdk/resources/beta/messages.js";
 import type {
 	CacheControlEphemeral,
 	ContentBlockParam,
@@ -8,7 +9,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { getAnthropicCacheWriteCost, hasStandardAnthropicCachePricing } from "../cache-pricing.js";
 import { getEnvApiKey } from "../env-api-keys.js";
-import { calculateCost, clampThinkingLevel } from "../models.js";
+import { calculateCost, clampThinkingLevel, supportsFastMode } from "../models.js";
 import type {
 	AnthropicMessagesCompat,
 	Api,
@@ -27,6 +28,7 @@ import type {
 	Tool,
 	ToolCall,
 	ToolResultMessage,
+	Usage,
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
@@ -173,6 +175,38 @@ export type AnthropicThinkingDisplay = "summarized" | "omitted";
 
 const FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
+const FAST_MODE_BETA = "fast-mode-2026-02-01";
+
+/** Fast mode bills at 2x standard rates across the full context window. */
+const FAST_MODE_COST_MULTIPLIER = 2;
+
+/** `speed` is only typed on the SDK's beta Messages resource, not on the non-beta params it shares a wire format with. */
+type AnthropicSpeed = NonNullable<BetaUsage["speed"]>;
+
+/**
+ * Fast mode is opted into per request, so the shared "priority" service tier maps
+ * onto it. Models that do not support it reject or ignore `speed`, so it is only
+ * sent where Anthropic documents support.
+ * @see https://platform.claude.com/docs/en/build-with-claude/fast-mode
+ */
+function usesFastMode(model: Model<"anthropic-messages">, options?: AnthropicOptions): boolean {
+	return options?.serviceTier === "priority" && supportsFastMode(model);
+}
+
+/**
+ * Bill on the speed the response reports rather than the one requested: fast mode
+ * is not guaranteed, and Opus 4.6 answers at standard speed without erroring.
+ */
+function applyFastModePricing(usage: Usage, speed: AnthropicSpeed | undefined): void {
+	if (speed !== "fast") {
+		return;
+	}
+	usage.cost.input *= FAST_MODE_COST_MULTIPLIER;
+	usage.cost.output *= FAST_MODE_COST_MULTIPLIER;
+	usage.cost.cacheRead *= FAST_MODE_COST_MULTIPLIER;
+	usage.cost.cacheWrite *= FAST_MODE_COST_MULTIPLIER;
+	usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
+}
 
 function getAnthropicCompat(model: Model<"anthropic-messages">): Required<AnthropicMessagesCompat> {
 	return {
@@ -505,6 +539,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					apiKey,
 					options?.interleavedThinking ?? true,
 					shouldUseFineGrainedToolStreamingBeta(model, context),
+					usesFastMode(model, options),
 					options?.headers,
 					copilotDynamicHeaders,
 				);
@@ -517,6 +552,8 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 				cacheControl && usesAnthropicCachePricing
 					? getAnthropicCacheWriteCost(model.cost.input, cacheControl.ttl === "1h" ? "1h" : "5m")
 					: undefined;
+			// Falls back to the requested speed for endpoints that omit `usage.speed`.
+			let speed: AnthropicSpeed | undefined = usesFastMode(model, options) ? "fast" : undefined;
 			let params = buildParams(model, context, isOAuth, options, cacheControl);
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
@@ -554,11 +591,13 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 							event.message.usage.cache_creation,
 						);
 					}
+					speed = (event.message.usage as BetaUsage).speed ?? speed;
 					calculateCost(
 						model,
 						output.usage,
 						cacheWriteCost === undefined ? undefined : { cacheWrite: cacheWriteCost },
 					);
+					applyFastModePricing(output.usage, speed);
 				} else if (event.type === "content_block_start") {
 					if (event.content_block.type === "text") {
 						const block: Block = {
@@ -708,6 +747,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 						output.usage,
 						cacheWriteCost === undefined ? undefined : { cacheWrite: cacheWriteCost },
 					);
+					applyFastModePricing(output.usage, speed);
 				}
 			}
 
@@ -851,6 +891,7 @@ function createClient(
 	apiKey: string,
 	interleavedThinking: boolean,
 	useFineGrainedToolStreamingBeta: boolean,
+	useFastModeBeta: boolean,
 	optionsHeaders?: Record<string, string>,
 	dynamicHeaders?: Record<string, string>,
 ): { client: Anthropic; isOAuthToken: boolean } {
@@ -863,6 +904,10 @@ function createClient(
 	}
 	if (needsInterleavedBeta) {
 		betaFeatures.push(INTERLEAVED_THINKING_BETA);
+	}
+	// Without this beta the request is rejected outright: `speed` is not a GA param.
+	if (useFastModeBeta) {
+		betaFeatures.push(FAST_MODE_BETA);
 	}
 
 	if (model.provider === "cloudflare-ai-gateway") {
@@ -1053,6 +1098,10 @@ function buildParams(
 		} else {
 			params.tool_choice = options.toolChoice;
 		}
+	}
+
+	if (usesFastMode(model, options)) {
+		(params as MessageCreateParamsStreaming & { speed?: AnthropicSpeed }).speed = "fast";
 	}
 
 	return params;

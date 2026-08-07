@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Changed `/fast` to also toggle fast mode on Claude Opus 5 and Claude Opus 4.8 over the Anthropic API.
 - Fixed the bundled `websearch` skill description and missing-key guidance omitting the `/login` → **MCP Connections** step required to configure Serper.
 
 ## [0.7.0] - 2026-08-05
