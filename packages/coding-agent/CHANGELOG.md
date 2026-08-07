@@ -5,6 +5,8 @@
 - Changed `/fast` to also toggle fast mode on Claude Opus 5 and Claude Opus 4.8 over the Anthropic API.
 - Fixed a daemon session worker hosting a large subagent fan-out saturating its main thread on repeated full scans of the same session files, which made attach and other supervisor commands time out.
 - Changed attach to use a 120s budget on both the client and supervisor hops, so attaching to a worker that is busy serving a large session tree is slow rather than impossible.
+- Fixed the RLM subagent tree walk reading a resident child's session file from disk only to discard it, which made every walk rescan the full transcript of every live child.
+- Fixed concurrent subagent tree walks each re-reading every subagent registry, which stacked over a thousand simultaneous opens on a single registry file in a wide fan-out; registry reads and the whole-tree walk now share one in-flight result.
 
 ## [0.7.1] - 2026-08-07
 

@@ -444,6 +444,10 @@ export class AgentDaemon {
 	private socketIdentity?: DaemonSocketIdentity;
 	private readonly clients = new Set<DaemonSocketClient>();
 	private readonly sessions = new Map<string, ActiveSessionState>();
+	/** In-flight RLM subagent registry reads, keyed by registry path. */
+	private readonly rlmSubagentRegistryReads = new Map<string, Promise<PersistedRlmSubagentRegistryEntry[]>>();
+	/** In-flight whole-tree passive subagent walk, shared by concurrent callers. */
+	private passiveRlmSubagentWalk: Promise<PassiveRlmSubagent[]> | undefined;
 	private readonly openingSessions = new Map<string, Promise<ActiveSessionState>>();
 	/** Covers path resolution through publication in openingSessions, before the runtime promise exists. */
 	private readonly reservingSessionOpens = new Map<string, Promise<void>>();
@@ -986,6 +990,29 @@ export class AgentDaemon {
 		if (!path) {
 			return [];
 		}
+		// The subagent tree walk reads a registry per visited entry, and the walk runs
+		// from several call sites at once, so a wide fan-out stacked over a thousand
+		// concurrent opens on a single registry file. One read per path at a time
+		// serves every caller that arrives while it runs. A read error still reaches
+		// every waiter, so throwOnReadError callers never share a coalesced read.
+		if (throwOnReadError) {
+			return this.readRlmSubagentRegistryFile(path, true);
+		}
+		const inFlight = this.rlmSubagentRegistryReads.get(path);
+		if (inFlight) {
+			return inFlight;
+		}
+		const read = this.readRlmSubagentRegistryFile(path, false).finally(() => {
+			this.rlmSubagentRegistryReads.delete(path);
+		});
+		this.rlmSubagentRegistryReads.set(path, read);
+		return read;
+	}
+
+	private async readRlmSubagentRegistryFile(
+		path: string,
+		throwOnReadError: boolean,
+	): Promise<PersistedRlmSubagentRegistryEntry[]> {
 		const latest = new Map<string, PersistedRlmSubagentRegistryEntry>();
 		let lines: string[];
 		try {
@@ -1042,6 +1069,28 @@ export class AgentDaemon {
 		savedRoots: SessionInfo[] = [],
 		includeResident = false,
 	): Promise<PassiveRlmSubagent[]> {
+		// Six call sites request the whole-tree walk with no arguments, and a live
+		// fan-out drives them concurrently, so the walk multiplied its own cost by the
+		// number of overlapping callers. Share one in-flight walk for that common
+		// shape; walks with explicit roots stay uncoalesced because their inputs differ.
+		if (savedRoots.length === 0 && !includeResident) {
+			const inFlight = this.passiveRlmSubagentWalk;
+			if (inFlight) {
+				return inFlight;
+			}
+			const walk = this.walkPassiveRlmSubagents(savedRoots, includeResident).finally(() => {
+				this.passiveRlmSubagentWalk = undefined;
+			});
+			this.passiveRlmSubagentWalk = walk;
+			return walk;
+		}
+		return this.walkPassiveRlmSubagents(savedRoots, includeResident);
+	}
+
+	private async walkPassiveRlmSubagents(
+		savedRoots: SessionInfo[],
+		includeResident: boolean,
+	): Promise<PassiveRlmSubagent[]> {
 		const passive: PassiveRlmSubagent[] = [];
 		const visit = async (
 			root: PassiveRlmRoot,
@@ -1053,11 +1102,14 @@ export class AgentDaemon {
 				const sessionKey = resolve(entry.sessionFile);
 				if (entry.status === "deleted" || visited.has(sessionKey)) continue;
 				visited.add(sessionKey);
-				const info = await readSessionInfo(entry.sessionFile);
-				if (!info) continue;
 				// A resident child walks its own registry as an outer root below. Avoid
 				// both duplicate rows and attributing its descendants to an ancestor.
+				// Checked before reading: a resident child's transcript is already in
+				// memory, and scanning it here only to discard the result made a wide
+				// live fan-out re-read every child's session file on every walk.
 				if (!includeResident && this.findSessionBySessionFile(entry.sessionFile)) continue;
+				const info = await readSessionInfo(entry.sessionFile);
+				if (!info) continue;
 				const chain = [...parentChain, entry];
 				passive.push({ ...root, entry, info, chain });
 				await visit(
