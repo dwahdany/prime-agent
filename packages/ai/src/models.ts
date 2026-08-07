@@ -36,7 +36,18 @@ export function getModels<TProvider extends KnownProvider>(
 	return models ? (Array.from(models.values()) as Model<ModelApi<TProvider, keyof (typeof MODELS)[TProvider]>>[]) : [];
 }
 
+/**
+ * Fast mode is a research preview on the Claude API only (not Bedrock, Vertex, or
+ * Foundry): Opus 5 and Opus 4.8 accept `speed: "fast"`, Opus 4.7 rejects it, and
+ * Opus 4.6 silently answers at standard speed.
+ * @see https://platform.claude.com/docs/en/build-with-claude/fast-mode
+ */
+const ANTHROPIC_FAST_MODE_MODELS: ReadonlySet<string> = new Set(["claude-opus-4-8", "claude-opus-5"]);
+
 export function supportsFastMode<TApi extends Api>(model: Model<TApi>): boolean {
+	if (model.provider === "anthropic" && model.api === "anthropic-messages") {
+		return ANTHROPIC_FAST_MODE_MODELS.has(model.id);
+	}
 	return (
 		model.provider === "openai-codex" &&
 		model.api === "openai-codex-responses" &&

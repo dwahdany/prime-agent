@@ -29,6 +29,19 @@ describe("Fast mode", () => {
 		expect(supportsFastMode(model("openai", "gpt-5.5", "openai-responses"))).toBe(false);
 	});
 
+	it.each(["claude-opus-5", "claude-opus-4-8"])("supports %s on the Claude API", (id) => {
+		expect(supportsFastMode(model("anthropic", id, "anthropic-messages"))).toBe(true);
+	});
+
+	it.each(["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5"])("rejects Claude %s", (id) => {
+		expect(supportsFastMode(model("anthropic", id, "anthropic-messages"))).toBe(false);
+	});
+
+	it("rejects Claude models routed through other providers", () => {
+		expect(supportsFastMode(model("amazon-bedrock", "claude-opus-5", "bedrock-converse-stream"))).toBe(false);
+		expect(supportsFastMode(model("vercel-ai-gateway", "anthropic/claude-opus-5", "anthropic-messages"))).toBe(false);
+	});
+
 	it("forwards priority through simple stream options", () => {
 		const testModel = model("openai-codex", "gpt-5.5", "openai-codex-responses");
 		expect(buildBaseOptions(testModel, { serviceTier: "priority" }).serviceTier).toBe("priority");
