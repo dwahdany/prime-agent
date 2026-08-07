@@ -4,6 +4,8 @@
 
 - Added Anthropic fast mode for Claude Opus 5 and Claude Opus 4.8: the priority service tier now sends `speed: "fast"` and bills the reported speed at 2x rates.
 
+## [0.7.1] - 2026-08-07
+
 ## [0.7.0] - 2026-08-05
 
 ## [0.6.1] - 2026-08-05
