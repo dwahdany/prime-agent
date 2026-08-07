@@ -55,6 +55,7 @@ import { deserializeDaemonError, serializeDaemonError } from "./daemon-errors.js
 import {
 	collectDaemonClientEnv,
 	createDaemonEventMeta,
+	DAEMON_ATTACH_REQUEST_TIMEOUT_MS,
 	DAEMON_COMMAND_COMPATIBILITY,
 	DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
 	DAEMON_DEFAULT_CLIENT_CAPABILITIES,
@@ -3310,15 +3311,18 @@ export class DaemonSupervisor {
 						if (!match.worker.client) {
 							throw new Error("Session worker is not connected");
 						}
-						const response = await match.worker.client.request({
-							type: "attach",
-							activeSessionId,
-							capabilities: client.capabilities.has("chunked_snapshot")
-								? ["attach_snapshot", "event_sequence", "slim_attach", "chunked_snapshot"]
-								: ["attach_snapshot", "event_sequence", "slim_attach"],
-							supportsExtensionUi: false,
-							env: command.env ?? collectDaemonClientEnv(),
-						});
+						const response = await match.worker.client.request(
+							{
+								type: "attach",
+								activeSessionId,
+								capabilities: client.capabilities.has("chunked_snapshot")
+									? ["attach_snapshot", "event_sequence", "slim_attach", "chunked_snapshot"]
+									: ["attach_snapshot", "event_sequence", "slim_attach"],
+								supportsExtensionUi: false,
+								env: command.env ?? collectDaemonClientEnv(),
+							},
+							DAEMON_ATTACH_REQUEST_TIMEOUT_MS,
+						);
 						const loaded = attachResultFromResponse(response);
 						if (match.worker.snapshotLoads.get(snapshotLoadKey) !== loading) {
 							throw new SnapshotLoadInvalidatedError("Session snapshot changed during attach");
