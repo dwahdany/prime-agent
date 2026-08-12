@@ -60,6 +60,9 @@ import type {
 	AgentConnectionNavigateTreeResult,
 	AgentConnectionNewSessionOptions,
 	AgentConnectionPromptOptions,
+	AgentConnectionQueuedMessageLane,
+	AgentConnectionQueuedMessageMutation,
+	AgentConnectionQueuedMessageMutationStatus,
 	AgentConnectionQueueMode,
 	AgentConnectionQueueState,
 	AgentConnectionResourceSnapshot,
@@ -168,6 +171,8 @@ export interface DaemonAgentConnectionOptions {
 	supportsExtensionUi?: boolean;
 	/** Dispose the connection by stopping its hidden worker instead of detaching. */
 	ownedSession?: boolean;
+	/** Require the target worker to have been created with telemetry disabled. */
+	telemetryDisabled?: true;
 }
 
 /**
@@ -309,6 +314,7 @@ export class DaemonAgentConnection implements AgentConnection {
 				],
 				env: this.options.sendClientEnv ? collectDaemonClientEnv() : undefined,
 				launchEnv: this.options.ownedSession ? collectDaemonLaunchEnv() : undefined,
+				telemetryDisabled: this.options.telemetryDisabled,
 				resumeCursor:
 					this.lastEventCursor === undefined
 						? undefined
@@ -527,6 +533,24 @@ export class DaemonAgentConnection implements AgentConnection {
 			type: "get_queue",
 			activeSessionId: this.activeSessionId,
 		});
+	}
+
+	async mutateQueuedMessage(
+		lane: AgentConnectionQueuedMessageLane,
+		index: number,
+		expectedText: string,
+		mutation: AgentConnectionQueuedMessageMutation,
+	): Promise<AgentConnectionQueuedMessageMutationStatus> {
+		if (!this.client.supportsServerCapability("queue_message_mutation")) return "unsupported";
+		const data = await this.requestData<{ status: AgentConnectionQueuedMessageMutationStatus }>({
+			type: "mutate_queued_message",
+			activeSessionId: this.activeSessionId,
+			lane,
+			index,
+			expectedText,
+			mutation,
+		});
+		return data.status;
 	}
 
 	async clearQueue(): Promise<AgentConnectionQueueState> {
@@ -1143,6 +1167,7 @@ export class DaemonAgentConnection implements AgentConnection {
 				],
 				env: this.options.sendClientEnv ? collectDaemonClientEnv() : undefined,
 				launchEnv: this.options.ownedSession ? collectDaemonLaunchEnv() : undefined,
+				telemetryDisabled: this.options.telemetryDisabled,
 			});
 			reattached = true;
 			this.activeSessionId = result.activeSessionId;

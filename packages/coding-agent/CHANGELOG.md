@@ -7,6 +7,9 @@
 - Changed attach to use a 120s budget on both the client and supervisor hops, so attaching to a worker that is busy serving a large session tree is slow rather than impossible.
 - Fixed the RLM subagent tree walk reading a resident child's session file from disk only to discard it, which made every walk rescan the full transcript of every live child.
 - Fixed concurrent subagent tree walks each re-reading every subagent registry, which stacked over a thousand simultaneous opens on a single registry file in a wide fan-out; registry reads and the whole-tree walk now share one in-flight result.
+- Fixed URLs not opening on click in fullscreen mode on terminals such as Ghostty; clicking a link in the transcript, dock, or overlays now opens it in the browser.
+
+## [0.7.2] - 2026-08-11
 
 ## [0.7.1] - 2026-08-07
 
