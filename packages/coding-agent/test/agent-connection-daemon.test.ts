@@ -23,6 +23,7 @@ import {
 	DaemonSocketClosedError,
 } from "../src/modes/daemon/daemon-client.js";
 import {
+	DAEMON_ATTACH_REQUEST_TIMEOUT_MS,
 	DAEMON_PROTOCOL_INFO,
 	DAEMON_SCHEMA_REVISION,
 	type DaemonAttachResult,
@@ -2629,7 +2630,7 @@ describe("DaemonAgentConnection", () => {
 			rollbackId: "refine_previous",
 		});
 		expect(fakeClient.requests[1]).not.toHaveProperty("global");
-		expect(fakeClient.requestTimeouts[0]).toBe(30000);
+		expect(fakeClient.requestTimeouts[0]).toBe(DAEMON_ATTACH_REQUEST_TIMEOUT_MS);
 		expect(fakeClient.requestTimeouts[1]).toBe(DAEMON_REFINE_REQUEST_TIMEOUT_MS);
 	});
 
